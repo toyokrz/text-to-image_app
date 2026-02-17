@@ -5,6 +5,7 @@
   "description": "選択テキストをAIで図解画像に変換するChrome拡張機能",
   "permissions": [
     "activeTab",
+    "scripting",
     "contextMenus",
     "storage",
     "notifications",

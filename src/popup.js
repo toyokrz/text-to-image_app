@@ -119,15 +119,21 @@ async function getSelectedText() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return;
 
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_SELECTION' });
-    if (response && response.text && response.text.trim().length > 0) {
-      currentSelectedText = response.text.trim();
+    // chrome.scripting.executeScriptで直接取得（content script不要）
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.getSelection().toString(),
+    });
+
+    const text = results?.[0]?.result;
+    if (text && text.trim().length > 0) {
+      currentSelectedText = text.trim();
       selectedTextEl.textContent = currentSelectedText;
       selectedTextEl.classList.remove('empty');
       updateGenerateButton();
     }
   } catch (error) {
-    // content scriptが読み込まれていないページ（chrome://等）ではエラーになる
+    // chrome://等のページではエラーになる
     console.log('選択テキストの取得に失敗:', error.message);
   }
 }
