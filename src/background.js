@@ -2,12 +2,34 @@ import { GoogleGenAI } from '@google/genai';
 
 // ===== コンテキストメニュー登録 =====
 chrome.runtime.onInstalled.addListener(() => {
+  // 初期化時に生成状態をリセット
+  chrome.storage.local.set({
+    generationState: {
+      status: 'idle',
+      text: null,
+      imageData: null,
+      mimeType: null,
+      error: null,
+    },
+  });
+
   chrome.contextMenus.create({
     id: 'generate-diagram',
     title: 'テキストから図解を生成',
     contexts: ['selection'],
   });
 });
+
+// ===== 生成状態を更新してポップアップに通知 =====
+async function updateGenerationState(state) {
+  await chrome.storage.local.set({ generationState: state });
+  // ポップアップが開いていれば通知
+  try {
+    chrome.runtime.sendMessage({ type: 'GENERATION_STATE_CHANGED', state });
+  } catch {
+    // ポップアップが閉じていればエラーになるが無視
+  }
+}
 
 // ===== コンテキストメニュークリック処理 =====
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -79,10 +101,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // ===== メッセージハンドラ（ポップアップからのリクエスト） =====
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GENERATE_DIAGRAM') {
-    handleGenerateRequest(message)
-      .then(sendResponse)
-      .catch(err => sendResponse({ error: err.message }));
-    return true; // 非同期レスポンスのために true を返す
+    // 即座にレスポンスを返し、生成はバックグラウンドで実行
+    handleGenerateRequest(message);
+    sendResponse({ accepted: true });
+    return false;
+  }
+
+  if (message.type === 'CLEAR_GENERATION') {
+    updateGenerationState({
+      status: 'idle',
+      text: null,
+      imageData: null,
+      mimeType: null,
+      error: null,
+    });
+    sendResponse({ success: true });
+    return false;
   }
 
   if (message.type === 'COPY_IMAGE') {
@@ -98,14 +132,55 @@ async function handleGenerateRequest(message) {
   const { text, apiKey, style, resolution } = message;
 
   if (!apiKey) {
-    return { error: 'APIキーが設定されていません。設定画面からAPIキーを入力してください。' };
+    await updateGenerationState({
+      status: 'error',
+      text,
+      imageData: null,
+      mimeType: null,
+      error: 'APIキーが設定されていません。設定画面からAPIキーを入力してください。',
+    });
+    return;
   }
 
   if (!text || text.trim().length === 0) {
-    return { error: 'テキストが選択されていません。Webページ上でテキストを選択してください。' };
+    await updateGenerationState({
+      status: 'error',
+      text,
+      imageData: null,
+      mimeType: null,
+      error: 'テキストが選択されていません。Webページ上でテキストを選択してください。',
+    });
+    return;
   }
 
-  return await generateDiagram(text, apiKey, style, resolution);
+  // 生成中状態に更新
+  await updateGenerationState({
+    status: 'generating',
+    text,
+    imageData: null,
+    mimeType: null,
+    error: null,
+  });
+
+  const result = await generateDiagram(text, apiKey, style, resolution);
+
+  if (result.error) {
+    await updateGenerationState({
+      status: 'error',
+      text,
+      imageData: null,
+      mimeType: null,
+      error: result.error,
+    });
+  } else {
+    await updateGenerationState({
+      status: 'completed',
+      text,
+      imageData: result.imageData,
+      mimeType: result.mimeType,
+      error: null,
+    });
+  }
 }
 
 // ===== Gemini API呼び出し =====

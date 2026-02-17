@@ -24,8 +24,74 @@ let currentMimeType = null;
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
+  await restoreGenerationState();
   await getSelectedText();
 });
+
+// ===== バックグラウンドからの状態変更通知を受け取る =====
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'GENERATION_STATE_CHANGED') {
+    applyGenerationState(message.state);
+  }
+});
+
+// ===== 生成状態の復元（ポップアップ起動時） =====
+async function restoreGenerationState() {
+  const { generationState } = await chrome.storage.local.get('generationState');
+  if (generationState) {
+    applyGenerationState(generationState);
+  }
+}
+
+// ===== 生成状態をUIに反映 =====
+function applyGenerationState(state) {
+  if (!state) return;
+
+  // テキストを復元
+  if (state.text) {
+    currentSelectedText = state.text;
+    selectedTextEl.textContent = state.text;
+    selectedTextEl.classList.remove('empty');
+  }
+
+  switch (state.status) {
+    case 'generating':
+      generateBtn.disabled = true;
+      loading.classList.remove('hidden');
+      errorMessage.classList.add('hidden');
+      result.classList.add('hidden');
+      break;
+
+    case 'completed':
+      loading.classList.add('hidden');
+      errorMessage.classList.add('hidden');
+      if (state.imageData) {
+        currentImageData = state.imageData;
+        currentMimeType = state.mimeType;
+        resultImage.src = `data:${state.mimeType};base64,${state.imageData}`;
+        result.classList.remove('hidden');
+      }
+      updateGenerateButton();
+      break;
+
+    case 'error':
+      loading.classList.add('hidden');
+      result.classList.add('hidden');
+      if (state.error) {
+        showError(state.error);
+      }
+      updateGenerateButton();
+      break;
+
+    case 'idle':
+    default:
+      loading.classList.add('hidden');
+      errorMessage.classList.add('hidden');
+      result.classList.add('hidden');
+      updateGenerateButton();
+      break;
+  }
+}
 
 // ===== 設定読み込み =====
 async function loadSettings() {
@@ -130,31 +196,14 @@ generateBtn.addEventListener('click', async () => {
   currentImageData = null;
   currentMimeType = null;
 
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'GENERATE_DIAGRAM',
-      text: currentSelectedText,
-      apiKey,
-      style: styleSelect.value,
-      resolution: resolutionSelect.value,
-    });
-
-    if (response.error) {
-      showError(response.error);
-      return;
-    }
-
-    // 画像を表示
-    currentImageData = response.imageData;
-    currentMimeType = response.mimeType;
-    resultImage.src = `data:${response.mimeType};base64,${response.imageData}`;
-    result.classList.remove('hidden');
-  } catch (error) {
-    showError(`通信エラーが発生しました: ${error.message}`);
-  } finally {
-    loading.classList.add('hidden');
-    updateGenerateButton();
-  }
+  // バックグラウンドにリクエストを送信（即座に返る）
+  chrome.runtime.sendMessage({
+    type: 'GENERATE_DIAGRAM',
+    text: currentSelectedText,
+    apiKey,
+    style: styleSelect.value,
+    resolution: resolutionSelect.value,
+  });
 });
 
 // ===== 画像コピー =====
