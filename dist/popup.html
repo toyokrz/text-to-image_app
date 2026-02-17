@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="styles.css">
+  <title>テキスト→図解ジェネレーター</title>
+</head>
+<body>
+  <div class="container">
+    <!-- ヘッダー -->
+    <header class="header">
+      <h1 class="title">テキスト→図解</h1>
+      <button id="settings-toggle" class="icon-btn" title="設定">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 13a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M17.4 12.3a1.2 1.2 0 00.24 1.32l.04.04a1.44 1.44 0 11-2.04 2.04l-.04-.04a1.2 1.2 0 00-1.32-.24 1.2 1.2 0 00-.72 1.08v.12a1.44 1.44 0 11-2.88 0v-.06a1.2 1.2 0 00-.78-1.08 1.2 1.2 0 00-1.32.24l-.04.04a1.44 1.44 0 11-2.04-2.04l.04-.04a1.2 1.2 0 00.24-1.32 1.2 1.2 0 00-1.08-.72h-.12a1.44 1.44 0 110-2.88h.06a1.2 1.2 0 001.08-.78 1.2 1.2 0 00-.24-1.32l-.04-.04a1.44 1.44 0 112.04-2.04l.04.04a1.2 1.2 0 001.32.24h.06a1.2 1.2 0 00.72-1.08v-.12a1.44 1.44 0 112.88 0v.06a1.2 1.2 0 00.72 1.08 1.2 1.2 0 001.32-.24l.04-.04a1.44 1.44 0 112.04 2.04l-.04.04a1.2 1.2 0 00-.24 1.32v.06a1.2 1.2 0 001.08.72h.12a1.44 1.44 0 110 2.88h-.06a1.2 1.2 0 00-1.08.72z" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- 設定画面 -->
+    <section id="settings-panel" class="panel settings-panel hidden">
+      <div class="form-group">
+        <label for="api-key">APIキー</label>
+        <div class="input-row">
+          <input type="password" id="api-key" placeholder="Gemini APIキーを入力" autocomplete="off">
+          <button id="toggle-key-visibility" class="icon-btn small" title="表示/非表示">
+            <svg id="eye-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.5"/>
+              <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </div>
+        <button id="save-api-key" class="btn btn-secondary btn-sm">保存</button>
+        <span id="api-key-status" class="status-text"></span>
+      </div>
+
+      <div class="form-group">
+        <label for="style-select">図解スタイル</label>
+        <select id="style-select">
+          <option value="シンプル">シンプル（デフォルト）</option>
+          <option value="ビジネス向け">ビジネス向け</option>
+          <option value="カラフル">カラフル</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="resolution-select">画像解像度</label>
+        <select id="resolution-select">
+          <option value="1K">1K（デフォルト・高速）</option>
+          <option value="2K">2K（高品質）</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- APIキー未設定の警告 -->
+    <div id="api-key-warning" class="warning hidden">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1l7 14H1L8 1z" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M8 6v4M8 12v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>APIキーを設定してください（右上の⚙アイコンから設定）</span>
+    </div>
+
+    <!-- メイン画面 -->
+    <section id="main-panel" class="panel">
+      <!-- 選択テキストプレビュー -->
+      <div class="form-group">
+        <label>選択テキスト</label>
+        <div id="selected-text" class="text-preview">
+          <span class="placeholder">Webページ上でテキストを選択してからアイコンをクリックしてください</span>
+        </div>
+      </div>
+
+      <!-- 生成ボタン -->
+      <button id="generate-btn" class="btn btn-primary" disabled>
+        テキストから図解を生成
+      </button>
+
+      <!-- ローディング -->
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>図解を生成しています...</p>
+      </div>
+
+      <!-- エラー表示 -->
+      <div id="error-message" class="error hidden"></div>
+
+      <!-- 結果表示 -->
+      <div id="result" class="result hidden">
+        <label>生成された図解</label>
+        <div class="image-container">
+          <img id="result-image" alt="生成された図解画像">
+        </div>
+        <button id="copy-btn" class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="5" y="5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          画像をコピー
+        </button>
+        <span id="copy-status" class="status-text"></span>
+      </div>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
