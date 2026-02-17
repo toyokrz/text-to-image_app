@@ -12,6 +12,7 @@
   var selectedTextEl = document.getElementById("selected-text");
   var generateBtn = document.getElementById("generate-btn");
   var loading = document.getElementById("loading");
+  var loadingText = document.getElementById("loading-text");
   var errorMessage = document.getElementById("error-message");
   var result = document.getElementById("result");
   var resultImage = document.getElementById("result-image");
@@ -93,6 +94,7 @@
       case "generating":
         generateBtn.disabled = true;
         loading.classList.remove("hidden");
+        loadingText.textContent = state.retryInfo || "\u56F3\u89E3\u3092\u751F\u6210\u3057\u3066\u3044\u307E\u3059...";
         errorMessage.classList.add("hidden");
         result.classList.add("hidden");
         startPolling();

@@ -168,6 +168,8 @@ async function handleGenerateRequest(message) {
     return;
   }
 
+  const MAX_RETRIES = 3;
+
   try {
     // 生成中状態に更新（タイムスタンプ付き）
     await updateGenerationState({
@@ -177,9 +179,34 @@ async function handleGenerateRequest(message) {
       mimeType: null,
       error: null,
       startedAt: Date.now(),
+      retryInfo: null,
     });
 
-    const result = await generateDiagram(text, apiKey, style, resolution);
+    let result;
+    let attempt = 0;
+
+    while (attempt <= MAX_RETRIES) {
+      result = await generateDiagram(text, apiKey, style, resolution);
+
+      // レート制限以外 or リトライ上限到達 → ループ終了
+      if (!result.rateLimited || attempt >= MAX_RETRIES) break;
+
+      attempt++;
+      const waitSec = 10 * Math.pow(2, attempt - 1); // 10s, 20s, 40s
+
+      // リトライ中であることをUIに通知
+      await updateGenerationState({
+        status: 'generating',
+        text,
+        imageData: null,
+        mimeType: null,
+        error: null,
+        startedAt: Date.now(),
+        retryInfo: `レート制限のため ${waitSec}秒後に再試行します（${attempt}/${MAX_RETRIES}）...`,
+      });
+
+      await new Promise(r => setTimeout(r, waitSec * 1000));
+    }
 
     if (result.error) {
       await updateGenerationState({
@@ -283,7 +310,7 @@ ${text}`;
     }
 
     if (message.includes('429') || message.includes('rate limit') || message.includes('quota')) {
-      return { error: 'APIのレート制限に達しました。しばらく待ってから再試行してください。' };
+      return { error: 'APIのレート制限に達しました。しばらく待ってから再試行してください。', rateLimited: true };
     }
 
     if (message.includes('403') || message.includes('permission')) {

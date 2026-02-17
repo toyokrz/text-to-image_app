@@ -16915,6 +16915,7 @@ async function handleGenerateRequest(message) {
     });
     return;
   }
+  const MAX_RETRIES = 3;
   try {
     await updateGenerationState({
       status: "generating",
@@ -16922,9 +16923,27 @@ async function handleGenerateRequest(message) {
       imageData: null,
       mimeType: null,
       error: null,
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      retryInfo: null
     });
-    const result = await generateDiagram(text, apiKey, style, resolution);
+    let result;
+    let attempt = 0;
+    while (attempt <= MAX_RETRIES) {
+      result = await generateDiagram(text, apiKey, style, resolution);
+      if (!result.rateLimited || attempt >= MAX_RETRIES) break;
+      attempt++;
+      const waitSec = 10 * Math.pow(2, attempt - 1);
+      await updateGenerationState({
+        status: "generating",
+        text,
+        imageData: null,
+        mimeType: null,
+        error: null,
+        startedAt: Date.now(),
+        retryInfo: `\u30EC\u30FC\u30C8\u5236\u9650\u306E\u305F\u3081 ${waitSec}\u79D2\u5F8C\u306B\u518D\u8A66\u884C\u3057\u307E\u3059\uFF08${attempt}/${MAX_RETRIES}\uFF09...`
+      });
+      await new Promise((r) => setTimeout(r, waitSec * 1e3));
+    }
     if (result.error) {
       await updateGenerationState({
         status: "error",
@@ -17011,7 +17030,7 @@ ${text}`;
       return { error: "API\u30AD\u30FC\u304C\u7121\u52B9\u3067\u3059\u3002\u6B63\u3057\u3044API\u30AD\u30FC\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
     }
     if (message.includes("429") || message.includes("rate limit") || message.includes("quota")) {
-      return { error: "API\u306E\u30EC\u30FC\u30C8\u5236\u9650\u306B\u9054\u3057\u307E\u3057\u305F\u3002\u3057\u3070\u3089\u304F\u5F85\u3063\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
+      return { error: "API\u306E\u30EC\u30FC\u30C8\u5236\u9650\u306B\u9054\u3057\u307E\u3057\u305F\u3002\u3057\u3070\u3089\u304F\u5F85\u3063\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002", rateLimited: true };
     }
     if (message.includes("403") || message.includes("permission")) {
       return { error: "API\u3078\u306E\u30A2\u30AF\u30BB\u30B9\u304C\u62D2\u5426\u3055\u308C\u307E\u3057\u305F\u3002API\u30AD\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };

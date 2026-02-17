@@ -11,6 +11,7 @@ const resolutionSelect = document.getElementById('resolution-select');
 const selectedTextEl = document.getElementById('selected-text');
 const generateBtn = document.getElementById('generate-btn');
 const loading = document.getElementById('loading');
+const loadingText = document.getElementById('loading-text');
 const errorMessage = document.getElementById('error-message');
 const result = document.getElementById('result');
 const resultImage = document.getElementById('result-image');
@@ -114,6 +115,7 @@ function applyGenerationState(state) {
     case 'generating':
       generateBtn.disabled = true;
       loading.classList.remove('hidden');
+      loadingText.textContent = state.retryInfo || '図解を生成しています...';
       errorMessage.classList.add('hidden');
       result.classList.add('hidden');
       startPolling();
