@@ -1,0 +1,17 @@
+{
+  "name": "text-to-image-generator",
+  "version": "1.0.0",
+  "description": "Chrome拡張機能: 選択テキストをAIで図解画像に変換",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch"
+  },
+  "dependencies": {
+    "@google/genai": "^1.41.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
