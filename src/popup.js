@@ -28,8 +28,25 @@ function startPolling() {
   stopPolling();
   pollingInterval = setInterval(async () => {
     const { generationState } = await chrome.storage.local.get('generationState');
-    if (generationState && generationState.status !== 'generating') {
+    if (!generationState) return;
+
+    // 完了またはエラーならUIに反映
+    if (generationState.status !== 'generating') {
       applyGenerationState(generationState);
+      return;
+    }
+
+    // 生成中だが2分以上経過していたらタイムアウト
+    if (generationState.startedAt && Date.now() - generationState.startedAt > 120_000) {
+      const resetState = {
+        status: 'error',
+        text: generationState.text,
+        imageData: null,
+        mimeType: null,
+        error: '生成がタイムアウトしました。再度お試しください。',
+      };
+      await chrome.storage.local.set({ generationState: resetState });
+      applyGenerationState(resetState);
     }
   }, 1000);
 }
@@ -58,10 +75,28 @@ chrome.runtime.onMessage.addListener((message) => {
 // ===== 生成状態の復元（ポップアップ起動時） =====
 async function restoreGenerationState() {
   const { generationState } = await chrome.storage.local.get('generationState');
-  if (generationState) {
-    restoredStatus = generationState.status;
-    applyGenerationState(generationState);
+  if (!generationState) return;
+
+  // 'generating' 状態が2分以上続いていたらスタックとみなしてリセット
+  if (generationState.status === 'generating' && generationState.startedAt) {
+    const elapsed = Date.now() - generationState.startedAt;
+    if (elapsed > 120_000) {
+      const resetState = {
+        status: 'error',
+        text: generationState.text,
+        imageData: null,
+        mimeType: null,
+        error: '生成がタイムアウトしました。再度お試しください。',
+      };
+      await chrome.storage.local.set({ generationState: resetState });
+      restoredStatus = 'error';
+      applyGenerationState(resetState);
+      return;
+    }
   }
+
+  restoredStatus = generationState.status;
+  applyGenerationState(generationState);
 }
 
 // ===== 生成状態をUIに反映 =====

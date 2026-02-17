@@ -16797,7 +16797,21 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 async function updateGenerationState(state) {
-  await chrome.storage.local.set({ generationState: state });
+  try {
+    await chrome.storage.local.set({ generationState: state });
+  } catch (storageError) {
+    if (state.imageData) {
+      await chrome.storage.local.set({
+        generationState: {
+          ...state,
+          status: "error",
+          imageData: null,
+          mimeType: null,
+          error: "\u30B9\u30C8\u30EC\u30FC\u30B8\u3078\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u518D\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002"
+        }
+      });
+    }
+  }
   try {
     await chrome.runtime.sendMessage({ type: "GENERATION_STATE_CHANGED", state });
   } catch {
@@ -16901,30 +16915,44 @@ async function handleGenerateRequest(message) {
     });
     return;
   }
-  await updateGenerationState({
-    status: "generating",
-    text,
-    imageData: null,
-    mimeType: null,
-    error: null
-  });
-  const result = await generateDiagram(text, apiKey, style, resolution);
-  if (result.error) {
+  try {
     await updateGenerationState({
-      status: "error",
+      status: "generating",
       text,
       imageData: null,
       mimeType: null,
-      error: result.error
+      error: null,
+      startedAt: Date.now()
     });
-  } else {
-    await updateGenerationState({
-      status: "completed",
-      text,
-      imageData: result.imageData,
-      mimeType: result.mimeType,
-      error: null
-    });
+    const result = await generateDiagram(text, apiKey, style, resolution);
+    if (result.error) {
+      await updateGenerationState({
+        status: "error",
+        text,
+        imageData: null,
+        mimeType: null,
+        error: result.error
+      });
+    } else {
+      await updateGenerationState({
+        status: "completed",
+        text,
+        imageData: result.imageData,
+        mimeType: result.mimeType,
+        error: null
+      });
+    }
+  } catch (error) {
+    try {
+      await updateGenerationState({
+        status: "error",
+        text,
+        imageData: null,
+        mimeType: null,
+        error: `\u4E88\u671F\u3057\u306A\u3044\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F: ${error.message}`
+      });
+    } catch {
+    }
   }
 }
 async function generateDiagram(text, apiKey, style = "\u30B7\u30F3\u30D7\u30EB", resolution = "1K") {

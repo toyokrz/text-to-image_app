@@ -26,8 +26,21 @@
     stopPolling();
     pollingInterval = setInterval(async () => {
       const { generationState } = await chrome.storage.local.get("generationState");
-      if (generationState && generationState.status !== "generating") {
+      if (!generationState) return;
+      if (generationState.status !== "generating") {
         applyGenerationState(generationState);
+        return;
+      }
+      if (generationState.startedAt && Date.now() - generationState.startedAt > 12e4) {
+        const resetState = {
+          status: "error",
+          text: generationState.text,
+          imageData: null,
+          mimeType: null,
+          error: "\u751F\u6210\u304C\u30BF\u30A4\u30E0\u30A2\u30A6\u30C8\u3057\u307E\u3057\u305F\u3002\u518D\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002"
+        };
+        await chrome.storage.local.set({ generationState: resetState });
+        applyGenerationState(resetState);
       }
     }, 1e3);
   }
@@ -49,10 +62,25 @@
   });
   async function restoreGenerationState() {
     const { generationState } = await chrome.storage.local.get("generationState");
-    if (generationState) {
-      restoredStatus = generationState.status;
-      applyGenerationState(generationState);
+    if (!generationState) return;
+    if (generationState.status === "generating" && generationState.startedAt) {
+      const elapsed = Date.now() - generationState.startedAt;
+      if (elapsed > 12e4) {
+        const resetState = {
+          status: "error",
+          text: generationState.text,
+          imageData: null,
+          mimeType: null,
+          error: "\u751F\u6210\u304C\u30BF\u30A4\u30E0\u30A2\u30A6\u30C8\u3057\u307E\u3057\u305F\u3002\u518D\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002"
+        };
+        await chrome.storage.local.set({ generationState: resetState });
+        restoredStatus = "error";
+        applyGenerationState(resetState);
+        return;
+      }
     }
+    restoredStatus = generationState.status;
+    applyGenerationState(generationState);
   }
   function applyGenerationState(state) {
     if (!state) return;

@@ -22,7 +22,22 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // ===== 生成状態を更新してポップアップに通知 =====
 async function updateGenerationState(state) {
-  await chrome.storage.local.set({ generationState: state });
+  try {
+    await chrome.storage.local.set({ generationState: state });
+  } catch (storageError) {
+    // ストレージ書き込み失敗時（容量超過等）は画像データなしでエラー状態を保存
+    if (state.imageData) {
+      await chrome.storage.local.set({
+        generationState: {
+          ...state,
+          status: 'error',
+          imageData: null,
+          mimeType: null,
+          error: 'ストレージへの保存に失敗しました。再度お試しください。',
+        },
+      });
+    }
+  }
   // ポップアップが開いていれば通知（awaitしてunhandled rejectionを防ぐ）
   try {
     await chrome.runtime.sendMessage({ type: 'GENERATION_STATE_CHANGED', state });
@@ -153,33 +168,49 @@ async function handleGenerateRequest(message) {
     return;
   }
 
-  // 生成中状態に更新
-  await updateGenerationState({
-    status: 'generating',
-    text,
-    imageData: null,
-    mimeType: null,
-    error: null,
-  });
-
-  const result = await generateDiagram(text, apiKey, style, resolution);
-
-  if (result.error) {
+  try {
+    // 生成中状態に更新（タイムスタンプ付き）
     await updateGenerationState({
-      status: 'error',
+      status: 'generating',
       text,
       imageData: null,
       mimeType: null,
-      error: result.error,
-    });
-  } else {
-    await updateGenerationState({
-      status: 'completed',
-      text,
-      imageData: result.imageData,
-      mimeType: result.mimeType,
       error: null,
+      startedAt: Date.now(),
     });
+
+    const result = await generateDiagram(text, apiKey, style, resolution);
+
+    if (result.error) {
+      await updateGenerationState({
+        status: 'error',
+        text,
+        imageData: null,
+        mimeType: null,
+        error: result.error,
+      });
+    } else {
+      await updateGenerationState({
+        status: 'completed',
+        text,
+        imageData: result.imageData,
+        mimeType: result.mimeType,
+        error: null,
+      });
+    }
+  } catch (error) {
+    // 予期しないエラーでも必ず状態を更新（stuck防止）
+    try {
+      await updateGenerationState({
+        status: 'error',
+        text,
+        imageData: null,
+        mimeType: null,
+        error: `予期しないエラーが発生しました: ${error.message}`,
+      });
+    } catch {
+      // 最終手段：状態更新すら失敗した場合
+    }
   }
 }
 
