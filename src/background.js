@@ -23,9 +23,9 @@ chrome.runtime.onInstalled.addListener(() => {
 // ===== 生成状態を更新してポップアップに通知 =====
 async function updateGenerationState(state) {
   await chrome.storage.local.set({ generationState: state });
-  // ポップアップが開いていれば通知
+  // ポップアップが開いていれば通知（awaitしてunhandled rejectionを防ぐ）
   try {
-    chrome.runtime.sendMessage({ type: 'GENERATION_STATE_CHANGED', state });
+    await chrome.runtime.sendMessage({ type: 'GENERATION_STATE_CHANGED', state });
   } catch {
     // ポップアップが閉じていればエラーになるが無視
   }
@@ -198,22 +198,22 @@ ${text}`;
   try {
     const ai = new GoogleGenAI({ apiKey });
 
-    // タイムアウト処理（90秒）
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents: [{ text: prompt }],
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        imageConfig: {
-          imageSize: resolution,
+    // タイムアウト処理（90秒）- Promise.raceで確実に実装
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents: prompt,
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: {
+            imageSize: resolution,
+          },
         },
-      },
-    });
-
-    clearTimeout(timeoutId);
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('TIMEOUT')), 90000)
+      ),
+    ]);
 
     // レスポンスから画像データを抽出
     if (!response.candidates || response.candidates.length === 0) {
@@ -241,7 +241,7 @@ ${text}`;
 
     return { imageData, mimeType, textResponse };
   } catch (error) {
-    if (error.name === 'AbortError') {
+    if (error.message === 'TIMEOUT') {
       return { error: '生成がタイムアウトしました（90秒）。テキストを短くして再試行してください。' };
     }
 

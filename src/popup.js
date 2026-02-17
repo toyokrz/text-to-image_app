@@ -20,6 +20,26 @@ const copyStatus = document.getElementById('copy-status');
 let currentSelectedText = '';
 let currentImageData = null;
 let currentMimeType = null;
+let restoredStatus = null;
+let pollingInterval = null;
+
+// ===== ポーリング（generating状態中にストレージを監視） =====
+function startPolling() {
+  stopPolling();
+  pollingInterval = setInterval(async () => {
+    const { generationState } = await chrome.storage.local.get('generationState');
+    if (generationState && generationState.status !== 'generating') {
+      applyGenerationState(generationState);
+    }
+  }, 1000);
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+}
 
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', async () => {
@@ -39,6 +59,7 @@ chrome.runtime.onMessage.addListener((message) => {
 async function restoreGenerationState() {
   const { generationState } = await chrome.storage.local.get('generationState');
   if (generationState) {
+    restoredStatus = generationState.status;
     applyGenerationState(generationState);
   }
 }
@@ -60,9 +81,11 @@ function applyGenerationState(state) {
       loading.classList.remove('hidden');
       errorMessage.classList.add('hidden');
       result.classList.add('hidden');
+      startPolling();
       break;
 
     case 'completed':
+      stopPolling();
       loading.classList.add('hidden');
       errorMessage.classList.add('hidden');
       if (state.imageData) {
@@ -75,6 +98,7 @@ function applyGenerationState(state) {
       break;
 
     case 'error':
+      stopPolling();
       loading.classList.add('hidden');
       result.classList.add('hidden');
       if (state.error) {
@@ -85,6 +109,7 @@ function applyGenerationState(state) {
 
     case 'idle':
     default:
+      stopPolling();
       loading.classList.add('hidden');
       errorMessage.classList.add('hidden');
       result.classList.add('hidden');
@@ -115,6 +140,9 @@ async function loadSettings() {
 
 // ===== 選択テキスト取得 =====
 async function getSelectedText() {
+  // 生成中・完了状態では復元済みの状態を保護（上書きしない）
+  if (restoredStatus === 'generating' || restoredStatus === 'completed') return;
+
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return;
@@ -201,6 +229,9 @@ generateBtn.addEventListener('click', async () => {
   result.classList.add('hidden');
   currentImageData = null;
   currentMimeType = null;
+
+  // ポーリング開始（バックグラウンドからの通知が届かない場合の保険）
+  startPolling();
 
   // バックグラウンドにリクエストを送信（即座に返る）
   chrome.runtime.sendMessage({
