@@ -17025,17 +17025,11 @@ ${text}`;
     if (error.message === "TIMEOUT") {
       return { error: "\u751F\u6210\u304C\u30BF\u30A4\u30E0\u30A2\u30A6\u30C8\u3057\u307E\u3057\u305F\uFF0890\u79D2\uFF09\u3002\u30C6\u30AD\u30B9\u30C8\u3092\u77ED\u304F\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
     }
-    const message = error.message || "";
-    if (message.includes("API key")) {
-      return { error: "API\u30AD\u30FC\u304C\u7121\u52B9\u3067\u3059\u3002\u6B63\u3057\u3044API\u30AD\u30FC\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
+    const msg = error.message || "";
+    if (msg.includes("429") || msg.includes("rate limit") || msg.includes("quota")) {
+      return { error: `\u30EC\u30FC\u30C8\u5236\u9650: ${msg}`, rateLimited: true };
     }
-    if (message.includes("429") || message.includes("rate limit") || message.includes("quota")) {
-      return { error: "API\u306E\u30EC\u30FC\u30C8\u5236\u9650\u306B\u9054\u3057\u307E\u3057\u305F\u3002\u3057\u3070\u3089\u304F\u5F85\u3063\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002", rateLimited: true };
-    }
-    if (message.includes("403") || message.includes("permission")) {
-      return { error: "API\u3078\u306E\u30A2\u30AF\u30BB\u30B9\u304C\u62D2\u5426\u3055\u308C\u307E\u3057\u305F\u3002API\u30AD\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
-    }
-    return { error: `API\u547C\u3073\u51FA\u3057\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${message}` };
+    return { error: `API \u30A8\u30E9\u30FC: ${msg}` };
   }
 }
 var creatingOffscreen = null;

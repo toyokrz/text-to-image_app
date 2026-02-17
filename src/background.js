@@ -303,21 +303,13 @@ ${text}`;
       return { error: '生成がタイムアウトしました（90秒）。テキストを短くして再試行してください。' };
     }
 
-    const message = error.message || '';
+    const msg = error.message || '';
 
-    if (message.includes('API key')) {
-      return { error: 'APIキーが無効です。正しいAPIキーを設定してください。' };
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
+      return { error: `レート制限: ${msg}`, rateLimited: true };
     }
 
-    if (message.includes('429') || message.includes('rate limit') || message.includes('quota')) {
-      return { error: 'APIのレート制限に達しました。しばらく待ってから再試行してください。', rateLimited: true };
-    }
-
-    if (message.includes('403') || message.includes('permission')) {
-      return { error: 'APIへのアクセスが拒否されました。APIキーの権限を確認してください。' };
-    }
-
-    return { error: `API呼び出しに失敗しました: ${message}` };
+    return { error: `API エラー: ${msg}` };
   }
 }
 
