@@ -1,10 +1,12 @@
 // ===== DOM要素 =====
 const settingsToggle = document.getElementById('settings-toggle');
 const settingsPanel = document.getElementById('settings-panel');
+const projectIdInput = document.getElementById('project-id');
+const locationSelect = document.getElementById('location-select');
 const apiKeyInput = document.getElementById('api-key');
 const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
-const saveApiKeyBtn = document.getElementById('save-api-key');
-const apiKeyStatus = document.getElementById('api-key-status');
+const saveSettingsBtn = document.getElementById('save-settings');
+const settingsStatus = document.getElementById('settings-status');
 const apiKeyWarning = document.getElementById('api-key-warning');
 const styleSelect = document.getElementById('style-select');
 const resolutionSelect = document.getElementById('resolution-select');
@@ -157,10 +159,22 @@ function applyGenerationState(state) {
 
 // ===== 設定読み込み =====
 async function loadSettings() {
-  const settings = await chrome.storage.local.get(['apiKey', 'style', 'resolution']);
+  const settings = await chrome.storage.local.get(['apiKey', 'projectId', 'location', 'style', 'resolution']);
+
+  if (settings.projectId) {
+    projectIdInput.value = settings.projectId;
+  }
+
+  if (settings.location) {
+    locationSelect.value = settings.location;
+  }
 
   if (settings.apiKey) {
     apiKeyInput.value = settings.apiKey;
+  }
+
+  // プロジェクトIDとAPIキーの両方が設定済みなら警告を非表示
+  if (settings.apiKey && settings.projectId) {
     apiKeyWarning.classList.add('hidden');
   } else {
     apiKeyWarning.classList.remove('hidden');
@@ -206,8 +220,9 @@ async function getSelectedText() {
 // ===== 生成ボタンの状態更新 =====
 function updateGenerateButton() {
   const hasApiKey = apiKeyInput.value.trim().length > 0;
+  const hasProjectId = projectIdInput.value.trim().length > 0;
   const hasText = currentSelectedText.length > 0;
-  generateBtn.disabled = !hasApiKey || !hasText;
+  generateBtn.disabled = !hasApiKey || !hasProjectId || !hasText;
 }
 
 // ===== 設定パネル表示切替 =====
@@ -221,14 +236,17 @@ toggleKeyVisibility.addEventListener('click', () => {
   apiKeyInput.type = isPassword ? 'text' : 'password';
 });
 
-// ===== APIキー保存 =====
-saveApiKeyBtn.addEventListener('click', async () => {
+// ===== 設定保存（プロジェクトID + リージョン + APIキー） =====
+saveSettingsBtn.addEventListener('click', async () => {
   const apiKey = apiKeyInput.value.trim();
-  await chrome.storage.local.set({ apiKey });
+  const projectId = projectIdInput.value.trim();
+  const location = locationSelect.value;
 
-  showStatus(apiKeyStatus, '保存しました', 'success');
+  await chrome.storage.local.set({ apiKey, projectId, location });
 
-  if (apiKey) {
+  showStatus(settingsStatus, '保存しました', 'success');
+
+  if (apiKey && projectId) {
     apiKeyWarning.classList.add('hidden');
   } else {
     apiKeyWarning.classList.remove('hidden');
@@ -254,8 +272,11 @@ generateBtn.addEventListener('click', async () => {
   }
 
   const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
-    showError('APIキーが設定されていません。設定画面からAPIキーを入力してください。');
+  const projectId = projectIdInput.value.trim();
+  const location = locationSelect.value;
+
+  if (!apiKey || !projectId) {
+    showError('APIキーとプロジェクトIDを設定してください。');
     return;
   }
 
@@ -275,6 +296,8 @@ generateBtn.addEventListener('click', async () => {
     type: 'GENERATE_DIAGRAM',
     text: currentSelectedText,
     apiKey,
+    projectId,
+    location,
     style: styleSelect.value,
     resolution: resolutionSelect.value,
   });

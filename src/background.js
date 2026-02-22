@@ -1,5 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
-
 // ===== コンテキストメニュー登録 =====
 chrome.runtime.onInstalled.addListener(() => {
   // 初期化時に生成状態をリセット
@@ -54,13 +52,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!selectedText) return;
 
   try {
-    const settings = await chrome.storage.local.get(['apiKey', 'style', 'resolution']);
-    if (!settings.apiKey) {
+    const settings = await chrome.storage.local.get(['apiKey', 'projectId', 'location', 'style', 'resolution']);
+    if (!settings.apiKey || !settings.projectId) {
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon128.png',
         title: 'エラー',
-        message: 'APIキーが設定されていません。拡張機能の設定画面からAPIキーを入力してください。',
+        message: 'APIキーまたはプロジェクトIDが設定されていません。拡張機能の設定画面から入力してください。',
       });
       return;
     }
@@ -76,6 +74,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const result = await generateDiagram(
       selectedText,
       settings.apiKey,
+      settings.projectId,
+      settings.location || 'us-central1',
       settings.style || 'シンプル',
       settings.resolution || '1K'
     );
@@ -144,15 +144,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ===== 図解生成リクエスト処理 =====
 async function handleGenerateRequest(message) {
-  const { text, apiKey, style, resolution } = message;
+  const { text, apiKey, projectId, location, style, resolution } = message;
 
-  if (!apiKey) {
+  if (!apiKey || !projectId) {
     await updateGenerationState({
       status: 'error',
       text,
       imageData: null,
       mimeType: null,
-      error: 'APIキーが設定されていません。設定画面からAPIキーを入力してください。',
+      error: 'APIキーまたはプロジェクトIDが設定されていません。設定画面から入力してください。',
     });
     return;
   }
@@ -186,7 +186,7 @@ async function handleGenerateRequest(message) {
     let attempt = 0;
 
     while (attempt <= MAX_RETRIES) {
-      result = await generateDiagram(text, apiKey, style, resolution);
+      result = await generateDiagram(text, apiKey, projectId, location || 'us-central1', style, resolution);
 
       // レート制限以外 or リトライ上限到達 → ループ終了
       if (!result.rateLimited || attempt >= MAX_RETRIES) break;
@@ -241,8 +241,8 @@ async function handleGenerateRequest(message) {
   }
 }
 
-// ===== Gemini API呼び出し =====
-async function generateDiagram(text, apiKey, style = 'シンプル', resolution = '1K') {
+// ===== Vertex AI REST API呼び出し =====
+async function generateDiagram(text, apiKey, projectId, location, style = 'シンプル', resolution = '1K') {
   const prompt = `以下のテキスト内容を、わかりやすい図解画像として生成してください。
 - 日本語で記載
 - 要点を構造化して視覚的に表現
@@ -253,32 +253,64 @@ async function generateDiagram(text, apiKey, style = 'シンプル', resolution 
 テキスト:
 ${text}`;
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
+  const model = 'gemini-2.0-flash-exp';
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`;
 
-    // タイムアウト処理（90秒）- Promise.raceで確実に実装
-    const response = await Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
-        contents: prompt,
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: {
-            imageSize: resolution,
-          },
-        },
-      }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT')), 90000)
-      ),
-    ]);
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+    },
+  };
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorBody);
+        errorMsg = errorJson.error?.message || errorMsg;
+      } catch {
+        errorMsg = errorBody || errorMsg;
+      }
+
+      if (response.status === 429) {
+        return { error: `レート制限: ${errorMsg}`, rateLimited: true };
+      }
+      if (response.status === 401 || response.status === 403) {
+        return { error: `認証エラー: ${errorMsg}\n\nAPIキーとプロジェクトIDを確認してください。Vertex AI APIが有効になっているか確認してください。` };
+      }
+      return { error: `API エラー (${response.status}): ${errorMsg}` };
+    }
+
+    const data = await response.json();
 
     // レスポンスから画像データを抽出
-    if (!response.candidates || response.candidates.length === 0) {
+    if (!data.candidates || data.candidates.length === 0) {
       return { error: 'APIからの応答が空でした。別のテキストで再試行してください。' };
     }
 
-    const parts = response.candidates[0].content.parts;
+    const parts = data.candidates[0].content.parts;
     let imageData = null;
     let mimeType = null;
     let textResponse = '';
@@ -299,7 +331,7 @@ ${text}`;
 
     return { imageData, mimeType, textResponse };
   } catch (error) {
-    if (error.message === 'TIMEOUT') {
+    if (error.name === 'AbortError') {
       return { error: '生成がタイムアウトしました（90秒）。テキストを短くして再試行してください。' };
     }
 

@@ -2,10 +2,12 @@
   // src/popup.js
   var settingsToggle = document.getElementById("settings-toggle");
   var settingsPanel = document.getElementById("settings-panel");
+  var projectIdInput = document.getElementById("project-id");
+  var locationSelect = document.getElementById("location-select");
   var apiKeyInput = document.getElementById("api-key");
   var toggleKeyVisibility = document.getElementById("toggle-key-visibility");
-  var saveApiKeyBtn = document.getElementById("save-api-key");
-  var apiKeyStatus = document.getElementById("api-key-status");
+  var saveSettingsBtn = document.getElementById("save-settings");
+  var settingsStatus = document.getElementById("settings-status");
   var apiKeyWarning = document.getElementById("api-key-warning");
   var styleSelect = document.getElementById("style-select");
   var resolutionSelect = document.getElementById("resolution-select");
@@ -131,9 +133,17 @@
     }
   }
   async function loadSettings() {
-    const settings = await chrome.storage.local.get(["apiKey", "style", "resolution"]);
+    const settings = await chrome.storage.local.get(["apiKey", "projectId", "location", "style", "resolution"]);
+    if (settings.projectId) {
+      projectIdInput.value = settings.projectId;
+    }
+    if (settings.location) {
+      locationSelect.value = settings.location;
+    }
     if (settings.apiKey) {
       apiKeyInput.value = settings.apiKey;
+    }
+    if (settings.apiKey && settings.projectId) {
       apiKeyWarning.classList.add("hidden");
     } else {
       apiKeyWarning.classList.remove("hidden");
@@ -167,8 +177,9 @@
   }
   function updateGenerateButton() {
     const hasApiKey = apiKeyInput.value.trim().length > 0;
+    const hasProjectId = projectIdInput.value.trim().length > 0;
     const hasText = currentSelectedText.length > 0;
-    generateBtn.disabled = !hasApiKey || !hasText;
+    generateBtn.disabled = !hasApiKey || !hasProjectId || !hasText;
   }
   settingsToggle.addEventListener("click", () => {
     settingsPanel.classList.toggle("hidden");
@@ -177,11 +188,13 @@
     const isPassword = apiKeyInput.type === "password";
     apiKeyInput.type = isPassword ? "text" : "password";
   });
-  saveApiKeyBtn.addEventListener("click", async () => {
+  saveSettingsBtn.addEventListener("click", async () => {
     const apiKey = apiKeyInput.value.trim();
-    await chrome.storage.local.set({ apiKey });
-    showStatus(apiKeyStatus, "\u4FDD\u5B58\u3057\u307E\u3057\u305F", "success");
-    if (apiKey) {
+    const projectId = projectIdInput.value.trim();
+    const location = locationSelect.value;
+    await chrome.storage.local.set({ apiKey, projectId, location });
+    showStatus(settingsStatus, "\u4FDD\u5B58\u3057\u307E\u3057\u305F", "success");
+    if (apiKey && projectId) {
       apiKeyWarning.classList.add("hidden");
     } else {
       apiKeyWarning.classList.remove("hidden");
@@ -200,8 +213,10 @@
       return;
     }
     const apiKey = apiKeyInput.value.trim();
-    if (!apiKey) {
-      showError("API\u30AD\u30FC\u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u8A2D\u5B9A\u753B\u9762\u304B\u3089API\u30AD\u30FC\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+    const projectId = projectIdInput.value.trim();
+    const location = locationSelect.value;
+    if (!apiKey || !projectId) {
+      showError("API\u30AD\u30FC\u3068\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8ID\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     generateBtn.disabled = true;
@@ -215,6 +230,8 @@
       type: "GENERATE_DIAGRAM",
       text: currentSelectedText,
       apiKey,
+      projectId,
+      location,
       style: styleSelect.value,
       resolution: resolutionSelect.value
     });
